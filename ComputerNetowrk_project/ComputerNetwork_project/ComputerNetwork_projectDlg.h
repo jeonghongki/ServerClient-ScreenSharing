@@ -30,6 +30,7 @@ protected:
 
 	// 생성된 메시지 맵 함수
 	virtual BOOL OnInitDialog();
+	virtual BOOL DestroyWindow();
 	afx_msg void OnSysCommand(UINT nID, LPARAM lParam);
 	afx_msg void OnPaint();
 	afx_msg HCURSOR OnQueryDragIcon();
@@ -42,14 +43,19 @@ public:
 	static vector<CWnd*> m_pWnds;
 	static CStringArray m_strArray;
 	CWnd* m_pCaptureWnd;
-	BOOL m_Draw;
+	BOOL m_Draw, m_Connection;
 	CPoint m_point;
 	int m_CaptureMode;
 	CIPAddressCtrl m_IPAddress;
 	CString m_strMyIP;
 	CString m_strOtherIP;
-	afx_msg void OnCbnSelchangeComboList();
+	CEdit m_Port;
+	void CaptureImage();
 	void DeleteWindowList();
+	void RejectedConnect();
+	void UnBlockedItem(BOOL isBlocked);
+	void DrawImage(CImage *pngImage);
+	afx_msg void OnCbnSelchangeComboList();
 	afx_msg void OnBnClickedRefresh();
 	afx_msg void OnLButtonDown(UINT nFlags, CPoint point);
 	afx_msg void OnMouseMove(UINT nFlags, CPoint point);
@@ -57,5 +63,4 @@ public:
 	afx_msg void OnBnClickedRadioServer();
 	afx_msg void OnBnClickedRadioClient();
 	afx_msg void OnBnClickedButtonConnect();
-	CEdit m_Port;
 };

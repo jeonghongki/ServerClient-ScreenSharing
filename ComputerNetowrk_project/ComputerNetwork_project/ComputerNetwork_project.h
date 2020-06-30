@@ -13,6 +13,7 @@
 #include "ClientSock.h"
 
 #define MAX_MEMBER 10
+#define BUF_SIZE 1024
 
 // CComputerNetworkprojectApp:
 // 이 클래스의 구현에 대해서는 ComputerNetwork_project.cpp을(를) 참조하세요.
@@ -38,11 +39,14 @@ public:
 	CString m_IPlist[MAX_MEMBER];
 	UINT m_Portlist[MAX_MEMBER];
 	int m_Conectm = 0;
+	CString m_ServerIP;
+	CString m_Filelength;
+	CFile *m_File;
 	void InitServer(CString strIP);
 	void Connect(CString strIP, CString strPort);
 	void ReceiveInit();
 	void ReceiveData();
-	void SendData(CString strData, CString strIP);
+	void SendData(CFile fileData, CString strLength, CString strIP);
 	void CloseChild();
 };
 

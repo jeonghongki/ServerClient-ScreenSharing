@@ -79,6 +79,7 @@ BOOL CComputerNetworkprojectApp::InitInstance()
 	CComputerNetworkprojectDlg dlg;
 	m_pMainWnd = &dlg;
 	m_Server = FALSE;
+	m_File = NULL;
 	INT_PTR nResponse = dlg.DoModal();
 	if (nResponse == IDOK)
 	{
@@ -128,9 +129,13 @@ void CComputerNetworkprojectApp::InitServer(CString strIP)
 void CComputerNetworkprojectApp::Connect(CString strIP, CString strPort)
 {
 	// TODO: 여기에 구현 코드 추가.
+	CString temp;
 	m_pClient = new ClientSock;
+	m_ServerIP = strIP;
 	m_pClient->Create(_ttoi(strPort), SOCK_DGRAM);
-	m_pClient->SendTo(NULL, NULL, 8000, strIP);
+
+	temp.Format(_T("Connect"));
+	m_pClient->SendTo((LPCTSTR)temp, sizeof(TCHAR)*(temp.GetLength() + 1), 8000, m_ServerIP);
 }
 
 
@@ -139,66 +144,124 @@ void CComputerNetworkprojectApp::ReceiveInit()
 	// TODO: 여기에 구현 코드 추가.
 	CString ip;
 	UINT port;
-	
-	m_pServer->ReceiveFrom(NULL, NULL, ip, port);
-	if (m_Conectm < MAX_MEMBER)
-	{
-		m_Portlist[m_Conectm] = port;
-		m_IPlist[m_Conectm] = ip;
-		m_Conectm++;
-	}
-	else
-	{
-		CString temp;
-		temp.Format(_T("-1"));
-		m_pServer->SendTo((LPCTSTR)temp, sizeof(TCHAR)*(temp.GetLength() + 1), port, ip);
-	}
-}
-
-
-void CComputerNetworkprojectApp::ReceiveData()
-{
-	// TODO: 여기에 구현 코드 추가.
-	CString ip;
-	UINT port;
+	CString message;
 	wchar_t temp[MAX_PATH];
 
-	m_pClient->ReceiveFrom(temp, sizeof(temp), ip, port);
-	if (_ttoi(temp) == -1)
+	m_pServer->ReceiveFrom(temp, sizeof(temp), ip, port);
+	message.Format(L"%s", temp);
+
+	if (message == "Connect")
 	{
-		delete m_pClient;
-		m_pClient = NULL;
-	}
-	else
-	{
-		if (m_Server == TRUE)
+		if (m_Conectm < MAX_MEMBER)
 		{
-			for (int i = 0; i < m_Conectm; i++)
+			m_Portlist[m_Conectm] = port;
+			m_IPlist[m_Conectm] = ip;
+			m_Conectm++;
+		}
+		else
+		{
+			CString temp;
+			temp.Format(_T("-1"));
+			m_pServer->SendTo((LPCTSTR)temp, sizeof(TCHAR)*(temp.GetLength() + 1), port, ip);
+		}
+	}
+	else if (message == "Exit")
+	{
+		for (int i = 0; i < m_Conectm; i++)
+		{
+			if (m_IPlist[i] == ip)
 			{
-				if (m_Portlist[i] != port);
-					// 모든 클라이언트들에게 파일 전송해야 하는 코드 작성
+				for (int j = i; m_Conectm - 1; j++)
+				{
+					m_IPlist[j] = m_IPlist[j + 1];
+					m_Portlist[j] = m_Portlist[j + 1];
+				}
+				m_Conectm--;
 			}
 		}
 	}
 }
 
 
-void CComputerNetworkprojectApp::SendData(CString strData, CString strIP)
+void CComputerNetworkprojectApp::ReceiveData()
+{	
+	// TODO: 여기에 구현 코드 추가.
+	CString ip, length, strPath;
+	UINT port;
+	byte *data = new byte[BUF_SIZE];
+	DWORD dwRead = m_pClient->ReceiveFrom(data, BUF_SIZE, ip, port);
+	CImage *m_png = NULL;
+
+	strPath = _T("Capture.png");
+	if(m_File == NULL)
+		m_File = new CFile(strPath, CFile::modeCreate | CFile::modeReadWrite | CFile::typeBinary | CFile::shareDenyRead);
+	m_File->Write(data, dwRead);
+
+	CString temp((const wchar_t *)data);
+	if (_ttoi(temp) == -1)
+	{
+		delete m_pClient;
+		m_pClient = NULL;
+		((CComputerNetworkprojectDlg*)m_pMainWnd)->RejectedConnect();
+	}
+	else if (temp == "Exit")
+	{
+		AfxMessageBox(_T("서버와의 연결이 끊어졌습니다. 영상 공유를 종료합니다."));
+		delete m_pClient;
+		m_pClient = NULL;
+
+	}
+	else if (dwRead == 0)
+	{
+		m_File->Close();
+		m_png = new CImage();
+		m_png->Load(strPath);
+		
+		if (m_Server == TRUE)
+		{
+			for (int i = 0; i < m_Conectm; i++)
+			{
+				if (m_Portlist[i] != port)
+				{
+					m_File->Open(L"Capture.png", CFile::modeReadWrite | CFile::typeBinary | CFile::shareDenyRead);
+					do
+					{
+						dwRead = m_File->Read(data, BUF_SIZE);
+						length.Format(_T("%lu"), (ULONG)dwRead);
+						m_pClient->SendTo(data, _ttoi(length), m_Portlist[i], m_IPlist[i]);
+					} while (dwRead > 0);
+					m_File->Close();
+				}
+			}
+		}
+		((CComputerNetworkprojectDlg*)m_pMainWnd)->DrawImage(m_png);
+		delete m_File;
+		m_File = NULL;
+	}
+	delete data;
+}
+
+
+void CComputerNetworkprojectApp::SendData(CFile fileData, CString strLength, CString strIP)
 {
 	// TODO: 여기에 구현 코드 추가.
 	if (m_Server == TRUE)
 	{
-		for (int i = 0; i < m_Conectm; i++);
-			// 모든 클라이언트들에게 파일 전송해야 하는 코드 작성
+		for (int i = 0; i < m_Conectm; i++)
+			m_pClient->SendTo(fileData, _ttoi(strLength), m_Portlist[i], m_IPlist[i]);
 	}
 	else
-	{
-		// 서버의 Client 담당 소켓에 파일 전송 코드 작성
-	}
+		m_pClient->SendTo(fileData, _ttoi(strLength), 8001, strIP);
 }
 
 
 void CComputerNetworkprojectApp::CloseChild()
 {
 	// TODO: 여기에 구현 코드 추가.
+	CString temp;
+	if (m_pServer == NULL && m_pClient != NULL)
+	{
+		temp.Format(_T("Exit"));
+		m_pClient->SendTo((LPCTSTR)temp, sizeof(TCHAR)*(temp.GetLength() + 1), 8000, m_ServerIP);
+	}
 }

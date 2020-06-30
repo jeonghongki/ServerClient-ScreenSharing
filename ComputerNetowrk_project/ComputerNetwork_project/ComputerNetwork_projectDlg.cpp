@@ -62,6 +62,7 @@ CComputerNetworkprojectDlg::CComputerNetworkprojectDlg(CWnd* pParent /*=nullptr*
 {
 	m_pCaptureWnd = NULL;
 	m_Draw = FALSE;
+	m_Connection = FALSE;
 	m_hIcon = AfxGetApp()->LoadIcon(IDR_MAINFRAME);
 }
 
@@ -186,6 +187,10 @@ void CComputerNetworkprojectDlg::OnPaint()
 		hdc = ::GetDC(NULL);
 		HBITMAP hBitmap = NULL;
 
+		CClientDC dc((CStatic*)GetDlgItem(IDC_STATIC_DRAW));
+		m_picture.GetWindowRect(&rect);
+		ScreenToClient(&rect);
+
 		if (m_pCaptureWnd != NULL)
 		{
 			if (::IsWindow(m_pCaptureWnd->m_hWnd))
@@ -199,15 +204,37 @@ void CComputerNetworkprojectDlg::OnPaint()
 				m_combo.GetLBText(m_combo.GetCurSel(), temp);
 				if (temp != "01. [화면공유 프로그램]")
 				{
-					hBitmap = ::CreateCompatibleBitmap(hdc, wndrect.Width(), wndrect.Height());
+					hBitmap = ::CreateCompatibleBitmap(hdc, cx, cy);
 
 					if (!hBitmap)
+					{
+						m_pCaptureWnd = NULL;
 						MessageBox(_T("해당 윈도우는 이미 종료되었거나, 문제가 있습니다.\n윈도우 목록 새로고침을 수행합니다."), _T("Error"), MB_OK | MB_ICONERROR);
-
+						DeleteWindowList();
+						OnBnClickedRefresh();
+					}
 					::SelectObject(hdc, hBitmap);
 					::PrintWindow(m_pCaptureWnd->m_hWnd, hdc, 2);
 
-					StretchBlt(hdc, -8, -8, wndrect.right - wndrect.left + 8, wndrect.bottom - wndrect.top + 8, hdc, 0, 0, wndrect.right - wndrect.left - 8, wndrect.bottom - wndrect.top - 8, SRCCOPY);
+					StretchBlt(hdc, -8, -8, cx + 8, cy + 8, hdc, 0, 0, cx - 8, cy - 8, SRCCOPY);
+				}
+				// 현재 화면의 픽셀당 컬러 비트수 구하기
+				color_depth = GetDeviceCaps(hdc, BITSPIXEL);
+				if (cx == 0 || cy == 0)
+				{
+					m_pCaptureWnd = NULL;
+					MessageBox(_T("해당 윈도우는 이미 종료되었거나, 문제가 있습니다.\n윈도우 목록 새로고침을 수행합니다."), _T("Error"), MB_OK | MB_ICONERROR);
+					DeleteWindowList();
+					OnBnClickedRefresh();
+				}
+				else
+				{
+					image.Create(cx, cy, color_depth, 0);
+					BitBlt(image.GetDC(), 0, 0, cx, cy, hdc, 0, 0, SRCCOPY);
+					dc.SetStretchBltMode(HALFTONE);
+					image.Draw(dc, 0, 0, rect.Width(), rect.Height());
+					image.ReleaseDC();
+					image.Save(L"Capture.png", Gdiplus::ImageFormatPNG);
 				}
 			}
 			else
@@ -216,39 +243,13 @@ void CComputerNetworkprojectDlg::OnPaint()
 				return;
 			}
 		}
-
-		CClientDC dc((CStatic*)GetDlgItem(IDC_STATIC_DRAW));
-		m_picture.GetWindowRect(&rect);
-		ScreenToClient(&rect);
-		
-		if (m_pCaptureWnd != NULL)
-		{
-			// 현재 화면의 픽셀당 컬러 비트수 구하기
-			color_depth = GetDeviceCaps(hdc, BITSPIXEL);
-			image.Create(cx, cy, color_depth, 0); 
-			if (cx == 0 || cy == 0)
-			{
-				m_pCaptureWnd = NULL;
-				MessageBox(_T("해당 윈도우는 이미 종료되었거나, 문제가 있습니다.\n윈도우 목록 새로고침을 수행합니다."), _T("Error"), MB_OK | MB_ICONERROR);
-				DeleteWindowList();
-				OnBnClickedRefresh();
-			}
-			else
-			{
-				BitBlt(image.GetDC(), 0, 0, cx, cy, hdc, 0, 0, SRCCOPY);
-				dc.SetStretchBltMode(HALFTONE);
-				image.Draw(dc, 0, 0, rect.Width(), rect.Height());			
-				image.ReleaseDC();
-				image.Save(L"Capture.png", Gdiplus::ImageFormatPNG);
-			}
-		}
 		else
 		{
+			// 초기 검은색 화면 출력
 			rect.SetRect(0, 0, rect.Width(), rect.Height());
 			dc.FillRect(rect, &CBrush(RGB(0, 0, 0)));
-		}
+		}		
 		::ReleaseDC(NULL, hdc);
-
 		CDialogEx::OnPaint();
 	}
 }
@@ -396,25 +397,30 @@ void CComputerNetworkprojectDlg::OnLButtonUp(UINT nFlags, CPoint point)
 	if (m_Draw == TRUE)
 	{
 		m_Draw = FALSE;
-
-		HDC hdc;
-		CClientDC dc(m_picture.GetSafeOwner());
-
-		CRect rt;
-		((CStatic*)GetDlgItem(IDC_STATIC_DRAW))->GetWindowRect(&rt);
-
-		int color_depth;
-
-		// 윈도우 DC 얻기
-		hdc = ::GetDC(NULL);
-		// 현재 화면의 해상도 구하기
-		color_depth = GetDeviceCaps(hdc, BITSPIXEL);
-
-		CImage image;
-		image.Create(rt.Width(), rt.Height(), color_depth, 0);
-		BitBlt(image.GetDC(), 0, 0, rt.Width(), rt.Height(), hdc, rt.left, rt.top, SRCCOPY);
-		image.ReleaseDC();
-		image.Save(L"Capture.png", Gdiplus::ImageFormatPNG);
+		CaptureImage();
+		if (m_Connection == TRUE)
+		{
+			CFile *source = NULL;
+			CString length;
+			byte *data = new byte[BUF_SIZE];
+			DWORD dwRead;
+			CImage temp;
+			source = new CFile(L"Capture.png", CFile::modeReadWrite | CFile::typeBinary | CFile::shareDenyRead);
+			if (source != NULL)
+			{
+				do 
+				{
+					dwRead = source->Read(data, BUF_SIZE);
+					length.Format(_T("%lu"), (ULONG)dwRead);
+					theApp.SendData(data, length, m_strOtherIP);
+				} while (dwRead > 0);
+				source->Close();
+			}
+			else
+				MessageBox(_T("error"));
+			delete source;
+			delete data;
+		}
 	}
 	CDialogEx::OnLButtonUp(nFlags, point);
 }
@@ -446,12 +452,12 @@ void CComputerNetworkprojectDlg::OnBnClickedButtonConnect()
 {
 	// TODO: 여기에 컨트롤 알림 처리기 코드를 추가합니다.
 	UpdateData();
+	m_Connection = TRUE;
 	if (!m_CaptureMode)
 	{
 		((CComputerNetworkprojectApp*)AfxGetApp())->InitServer(m_strMyIP);
-		GetDlgItem(IDC_RADIO_SERVER)->EnableWindow(FALSE);
-		GetDlgItem(IDC_RADIO_CLIENT)->EnableWindow(FALSE);
-		GetDlgItem(IDC_BUTTON_CONNECT)->EnableWindow(FALSE);
+		UnBlockedItem(FALSE);
+		CaptureImage();
 	}
 	else
 	{
@@ -463,17 +469,88 @@ void CComputerNetworkprojectDlg::OnBnClickedButtonConnect()
 			AfxMessageBox(_T("해당 Port는 서버에서 사용하므로 다른 Port 번호를 입력하세요"));
 			m_Port.SetWindowText(_T(""));
 		}
+		else if (_ttoi(strport) == 0)
+		{
+			AfxMessageBox(_T("사용할 PORT 번호를 입력하세요"));
+		}
 		else if (strIP != _T("0.0.0.0"))
 		{
-			GetDlgItem(IDC_RADIO_SERVER)->EnableWindow(FALSE);
-			GetDlgItem(IDC_RADIO_CLIENT)->EnableWindow(FALSE);
-			GetDlgItem(IDC_BUTTON_CONNECT)->EnableWindow(FALSE);
-			GetDlgItem(IDC_EDIT_PORT)->EnableWindow(FALSE);
-			GetDlgItem(IDC_IPADDRESS_SERVER)->EnableWindow(FALSE);
+			UnBlockedItem(FALSE);
 			m_strOtherIP = strIP;
 			((CComputerNetworkprojectApp*)AfxGetApp())->Connect(strIP, strport);
 		}
 		else
 			AfxMessageBox(_T("접속할 서버의 IP 주소를 입력하세요"));
 	}
+}
+
+
+
+void CComputerNetworkprojectDlg::RejectedConnect()
+{
+	// TODO: 여기에 구현 코드 추가.
+	m_Connection = FALSE;
+	AfxMessageBox(_T("인원을 초과하여 접속이 거부되었습니다"));
+	UnBlockedItem(TRUE);
+}
+
+
+BOOL CComputerNetworkprojectDlg::DestroyWindow()
+{
+	// TODO: 여기에 특수화된 코드를 추가 및/또는 기본 클래스를 호출합니다.
+	((CComputerNetworkprojectApp*)AfxGetApp())->CloseChild();
+	return CDialogEx::DestroyWindow();
+}
+
+
+void CComputerNetworkprojectDlg::CaptureImage()
+{
+	// TODO: 여기에 구현 코드 추가.
+	HDC hdc;
+	CClientDC dc(m_picture.GetSafeOwner());
+
+	CRect rt;
+	((CStatic*)GetDlgItem(IDC_STATIC_DRAW))->GetWindowRect(&rt);
+
+	int color_depth;
+
+	// 윈도우 DC 얻기
+	hdc = ::GetDC(NULL);
+	// 현재 화면의 해상도 구하기
+	color_depth = GetDeviceCaps(hdc, BITSPIXEL);
+
+	if (rt.Width() != 0 || rt.Height() != 0)
+	{
+		CImage image;
+		image.Create(rt.Width(), rt.Height(), color_depth, 0);
+		BitBlt(image.GetDC(), 0, 0, rt.Width(), rt.Height(), hdc, rt.left, rt.top, SRCCOPY);
+		image.ReleaseDC();
+		image.Save(L"Capture.png", Gdiplus::ImageFormatPNG);
+	}
+}
+
+
+void CComputerNetworkprojectDlg::DrawImage(CImage *pngImage)
+{
+	// TODO: 여기에 구현 코드 추가.
+	CWnd *pWnd = (CWnd*)GetDlgItem(IDC_STATIC_DRAW);
+	CDC *dc = pWnd->GetDC();
+	CStatic *stasticSize = (CStatic *)GetDlgItem(IDC_STATIC_DRAW);
+	CRect rect;
+	CImage image;
+
+	stasticSize->GetClientRect(rect);
+	pngImage->Draw(dc->m_hDC, 0, 0, pngImage->GetWidth(), pngImage->GetHeight());
+	pngImage->ReleaseDC();
+}
+
+
+void CComputerNetworkprojectDlg::UnBlockedItem(BOOL isBlocked)
+{
+	// TODO: 여기에 구현 코드 추가.
+	GetDlgItem(IDC_RADIO_SERVER)->EnableWindow(isBlocked);
+	GetDlgItem(IDC_RADIO_CLIENT)->EnableWindow(isBlocked);
+	GetDlgItem(IDC_BUTTON_CONNECT)->EnableWindow(isBlocked);
+	GetDlgItem(IDC_EDIT_PORT)->EnableWindow(isBlocked);
+	GetDlgItem(IDC_IPADDRESS_SERVER)->EnableWindow(isBlocked);
 }
